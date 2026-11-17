@@ -136,8 +136,16 @@ fn update(state: &mut State, message: Msg) -> Task<Msg> {
                 }
             }
         }
-        Msg::Range(seconds) => state.seconds = seconds,
-        Msg::Interval(seconds) => state.interval_seconds = seconds,
+        Msg::Range(seconds) => {
+            if HISTORY_RANGES.iter().any(|&(value, _)| value == seconds) {
+                state.seconds = seconds;
+            }
+        }
+        Msg::Interval(seconds) => {
+            if UPDATE_INTERVALS.iter().any(|&(value, _)| value == seconds) {
+                state.interval_seconds = seconds;
+            }
+        }
         Msg::Zoom(action) => state.zoom.apply(action),
         Msg::Tick => {}
     }
@@ -329,13 +337,20 @@ fn metric_card(state: &State, metric: Metric, compact: bool) -> Element<'_, Msg>
     } else {
         card = card.push(text(value).size(if compact { 24.0 } else { SIZE_VALUE }));
     }
-    card = card
-        .push(
-            text(detail)
+    card = card.push(
+        text(detail)
+            .size(SIZE_CAPTION)
+            .color(dim(palette.text, 0.5)),
+    );
+    if matches!(metric, Metric::Memory) {
+        let (low, high) = graph.range();
+        card = card.push(
+            text(format!("Plot {low:.1}–{high:.1}%"))
                 .size(SIZE_CAPTION)
                 .color(dim(palette.text, 0.5)),
-        )
-        .push(canvas(graph).width(Length::Fill).height(72));
+        );
+    }
+    card = card.push(canvas(graph).width(Length::Fill).height(72));
     container(card)
         .padding(10)
         .width(Length::Fill)
@@ -360,21 +375,46 @@ mod tests {
     fn range_change_preserves_collected_history() {
         let theme = Arc::new(include_str!("../theme.toml").parse().unwrap());
         let (mut state, _) = boot(theme);
-        state
-            .history
-            .push(Sampler::new().sample(Duration::from_secs(1)));
+        state.history.push(Sample::fixture());
         let _ = update(&mut state, Msg::Range(300));
         assert_eq!(state.seconds, 300);
         assert_eq!(state.history.0.len(), 1);
     }
 
     #[test]
+    fn invalid_controls_do_not_change_settings() {
+        let theme = Arc::new(include_str!("../theme.toml").parse().unwrap());
+        let (mut state, _) = boot(theme);
+        for seconds in [0, 2, u64::MAX] {
+            let _ = update(&mut state, Msg::Interval(seconds));
+            let _ = update(&mut state, Msg::Range(seconds));
+            assert_eq!(state.interval_seconds, 1);
+            assert_eq!(state.seconds, 60);
+        }
+    }
+
+    #[test]
+    fn sampling_errors_preserve_history_and_recover() {
+        let theme = Arc::new(include_str!("../theme.toml").parse().unwrap());
+        let (mut state, _) = boot(theme);
+        state.history.push(Sample::fixture());
+        let _ = update(&mut state, Msg::Sampled(Err("test failure".into())));
+        assert!(!state.busy);
+        assert_eq!(state.error.as_deref(), Some("test failure"));
+        assert_eq!(state.history.0.len(), 1);
+        let _ = update(&mut state, Msg::Tick);
+        assert!(state.busy);
+        let _ = update(&mut state, Msg::Sampled(Ok(Sample::fixture())));
+        assert!(!state.busy);
+        assert!(state.error.is_none());
+        assert_eq!(state.history.0.len(), 2);
+    }
+
+    #[test]
     fn interval_changes_preserve_history_and_range() {
         let theme = Arc::new(include_str!("../theme.toml").parse().unwrap());
         let (mut state, _) = boot(theme);
-        state
-            .history
-            .push(Sampler::new().sample(Duration::from_secs(1)));
+        state.history.push(Sample::fixture());
         let _ = update(&mut state, Msg::Range(3600));
         for &(seconds, label) in UPDATE_INTERVALS {
             let _ = update(&mut state, Msg::Interval(seconds));

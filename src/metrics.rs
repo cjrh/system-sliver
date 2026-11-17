@@ -21,6 +21,25 @@ pub struct Sample {
     pub upload: Option<f32>,
 }
 
+#[cfg(test)]
+impl Sample {
+    /// Deterministic counters for tests that do not exercise OS sampling.
+    pub fn fixture() -> Self {
+        Self {
+            at: Instant::now(),
+            interval: Duration::from_secs(1),
+            cpu: Some(25.0),
+            cores: 4,
+            memory_used: 50,
+            memory_total: 100,
+            swap_used: 0,
+            swap_total: 0,
+            download: Some(0.0),
+            upload: Some(0.0),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct History(pub VecDeque<Sample>);
 
@@ -133,8 +152,7 @@ mod tests {
     #[test]
     fn history_is_time_bounded() {
         assert_eq!(RETENTION, Duration::from_secs(3600));
-        let mut sampler = Sampler::new();
-        let sample = sampler.sample(Duration::from_secs(1));
+        let sample = Sample::fixture();
         let mut history = History::default();
         history.push(sample.clone());
         let mut later = sample.clone();

@@ -3,6 +3,7 @@ name = "system-sliver"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "AGPL-3.0-or-later"
 description = "A narrow, live system-monitor sidebar built with iced"
 
 [dependencies]
