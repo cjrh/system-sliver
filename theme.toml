@@ -1,0 +1,15 @@
+name = "Sliver · Midnight"
+
+[palette]
+background = "#10151c"
+text = "#d8e2ef"
+primary = "#72b8ff"
+success = "#6cdbb0"
+warning = "#e9bd75"
+danger = "#ed869c"
+
+[container]
+background = "#171f29"
+border-radius = 8.0
+border-width = 1.0
+border-color = "#ffffff0c"

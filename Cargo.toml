@@ -1,0 +1,17 @@
+[package]
+name = "system-sliver"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "A narrow, live system-monitor sidebar built with iced"
+
+[dependencies]
+iced = { version = "0.14", default-features = false, features = [
+    "wgpu", "crisp", "tokio", "canvas", "web-colors", "x11", "wayland",
+] }
+iced-themer = { path = "../iced-themer" }
+sysinfo = { version = "0.39.6", default-features = false, features = ["system", "network"] }
+tokio = { version = "1", features = ["rt"] }
+
+[profile.dev.package."*"]
+opt-level = 3
