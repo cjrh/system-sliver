@@ -4,11 +4,13 @@ use std::time::{Duration, Instant};
 
 use sysinfo::{Networks, System};
 
-pub const RETENTION: Duration = Duration::from_secs(900);
+pub const RETENTION: Duration = Duration::from_secs(3600);
 
 #[derive(Debug, Clone)]
 pub struct Sample {
     pub at: Instant,
+    /// Expected sampling cadence when this observation was requested.
+    pub interval: Duration,
     pub cpu: Option<f32>,
     pub cores: usize,
     pub memory_used: u64,
@@ -50,7 +52,7 @@ impl Sampler {
         }
     }
 
-    pub fn sample(&mut self) -> Sample {
+    pub fn sample(&mut self, interval: Duration) -> Sample {
         self.system.refresh_cpu_usage();
         self.system.refresh_memory();
         self.networks.refresh(true);
@@ -69,6 +71,7 @@ impl Sampler {
         }
         let sample = Sample {
             at,
+            interval,
             // CPU and network need two observations; don't show a false zero.
             cpu: elapsed.map(|_| self.system.global_cpu_usage()),
             cores: self.system.cpus().len(),
@@ -129,8 +132,9 @@ mod tests {
 
     #[test]
     fn history_is_time_bounded() {
+        assert_eq!(RETENTION, Duration::from_secs(3600));
         let mut sampler = Sampler::new();
-        let sample = sampler.sample();
+        let sample = sampler.sample(Duration::from_secs(1));
         let mut history = History::default();
         history.push(sample.clone());
         let mut later = sample.clone();
@@ -145,7 +149,7 @@ mod tests {
 
     #[test]
     fn first_sample_has_no_misleading_rate() {
-        let first = Sampler::new().sample();
+        let first = Sampler::new().sample(Duration::from_secs(1));
         assert!(first.cpu.is_none());
         assert!(first.download.is_none());
         assert!(first.upload.is_none());

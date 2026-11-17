@@ -13,7 +13,7 @@ The window opens at **220 × 820** logical pixels and resizes down to 120 px wid
 - **Swap:** used/total, or an explicit “No swap configured”.
 - **Network:** aggregate receive (blue) and send (amber) rates, excluding loopback. VPNs and bridges may count the same traffic more than once. The plot auto-scales to the visible peak; its ceiling is shown above it.
 
-All charts share a time axis: oldest on the left, newest on the right. CPU, memory and swap use a fixed 0–100% scale. Select **1m / 5m / 15m** to change the visible history without losing samples. History accumulates while the app runs; uncollected history stays blank. Polls run once per second on a background worker, never overlap, and do not scan processes. CPU and network need two observations before showing values.
+All charts share a time axis: oldest on the left, newest on the right. CPU, memory and swap use a fixed 0–100% scale. Select **1m / 5m / 15m / 1h** to change the visible history without losing samples. History accumulates while the app runs; uncollected history stays blank. The row above the history controls selects the update interval: **1s / 3s / 10s / 1m** (default 1s). Polls run on a background worker, never overlap, and do not scan processes. Up to one hour of history is retained, even when switching intervals; rates use actual elapsed time. CPU and network need two observations before showing values.
 
 **Ctrl + / Ctrl =**, **Ctrl −**, **Ctrl 0** zoom the whole interface in, out, and back to 100%. History, zoom and window geometry are not persisted.
 

@@ -123,7 +123,7 @@ impl<Message> canvas::Program<Message> for Chart<'_> {
                 if age > self.seconds as f32 {
                     continue;
                 }
-                if previous.is_some_and(|at| sample.at.duration_since(at).as_secs_f32() > 2.5) {
+                if previous.is_some_and(|at| is_gap(at, sample)) {
                     paint(&mut segment);
                 }
                 previous = Some(sample.at);
@@ -142,6 +142,10 @@ impl<Message> canvas::Program<Message> for Chart<'_> {
     }
 }
 
+fn is_gap(previous: std::time::Instant, sample: &Sample) -> bool {
+    sample.at.duration_since(previous) > sample.interval.mul_f32(2.5)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +154,7 @@ mod tests {
     fn sample(at: Instant, download: f32) -> Sample {
         Sample {
             at,
+            interval: Duration::from_secs(1),
             cpu: Some(25.0),
             cores: 4,
             memory_used: 50,
@@ -180,6 +185,18 @@ mod tests {
         history.push(sample(start + Duration::from_secs(61), 2048.0));
         assert_eq!(chart(&history, Metric::Network).ceiling(), 2048.0 * 1.1);
         assert_eq!(chart(&history, Metric::Cpu).ceiling(), 100.0);
+    }
+
+    #[test]
+    fn slow_updates_are_connected_but_missed_samples_leave_gaps() {
+        let start = Instant::now();
+        for seconds in [1, 3, 10, 60] {
+            let mut next = sample(start + Duration::from_secs(seconds), 0.0);
+            next.interval = Duration::from_secs(seconds);
+            assert!(!is_gap(start, &next));
+            next.at = start + Duration::from_secs(seconds * 3);
+            assert!(is_gap(start, &next));
+        }
     }
 
     #[test]

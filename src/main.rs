@@ -18,6 +18,9 @@ const SIZE_BODY: f32 = 14.0;
 const SIZE_SMALL: f32 = 12.0;
 const SIZE_CAPTION: f32 = 10.0;
 
+const UPDATE_INTERVALS: &[(u64, &str)] = &[(1, "1s"), (3, "3s"), (10, "10s"), (60, "1m")];
+const HISTORY_RANGES: &[(u64, &str)] = &[(60, "1m"), (300, "5m"), (900, "15m"), (3600, "1h")];
+
 fn main() -> iced::Result {
     prefer_integrated_gpu();
     let theme = Arc::new(
@@ -55,6 +58,7 @@ struct State {
     zoom: zoom::Zoom,
     history: History,
     seconds: u64,
+    interval_seconds: u64,
     sampler: Arc<Mutex<Option<Sampler>>>,
     busy: bool,
     error: Option<String>,
@@ -65,6 +69,7 @@ enum Msg {
     Tick,
     Sampled(Result<Sample, String>),
     Range(u64),
+    Interval(u64),
     Zoom(zoom::Action),
 }
 
@@ -74,22 +79,25 @@ fn boot(theme: Arc<ThemeConfig>) -> (State, Task<Msg>) {
         zoom: zoom::Zoom::default(),
         history: History::default(),
         seconds: 60,
+        interval_seconds: 1,
         sampler: Arc::new(Mutex::new(None)),
         busy: true,
         error: None,
     };
-    let task = sample_task(state.sampler.clone());
+    let task = sample_task(state.sampler.clone(), state.interval_seconds);
     (state, task)
 }
 
-fn sample_task(sampler: Arc<Mutex<Option<Sampler>>>) -> Task<Msg> {
+fn sample_task(sampler: Arc<Mutex<Option<Sampler>>>, interval_seconds: u64) -> Task<Msg> {
     Task::perform(
         async move {
             tokio::task::spawn_blocking(move || {
                 let mut guard = sampler
                     .lock()
                     .map_err(|_| "Sampler lock poisoned".to_string())?;
-                Ok(guard.get_or_insert_with(Sampler::new).sample())
+                Ok(guard
+                    .get_or_insert_with(Sampler::new)
+                    .sample(Duration::from_secs(interval_seconds)))
             })
             .await
             .map_err(|e| format!("Sampler failed: {e}"))?
@@ -98,9 +106,9 @@ fn sample_task(sampler: Arc<Mutex<Option<Sampler>>>) -> Task<Msg> {
     )
 }
 
-fn subscription(_: &State) -> Subscription<Msg> {
+fn subscription(state: &State) -> Subscription<Msg> {
     Subscription::batch([
-        iced::time::every(Duration::from_secs(1)).map(|_| Msg::Tick),
+        iced::time::every(Duration::from_secs(state.interval_seconds)).map(|_| Msg::Tick),
         iced::event::listen_with(|event, _, _| match event {
             iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                 zoom::shortcut(&key, modifiers).map(Msg::Zoom)
@@ -114,7 +122,7 @@ fn update(state: &mut State, message: Msg) -> Task<Msg> {
     match message {
         Msg::Tick if !state.busy => {
             state.busy = true;
-            return sample_task(state.sampler.clone());
+            return sample_task(state.sampler.clone(), state.interval_seconds);
         }
         Msg::Sampled(result) => {
             state.busy = false;
@@ -129,6 +137,7 @@ fn update(state: &mut State, message: Msg) -> Task<Msg> {
             }
         }
         Msg::Range(seconds) => state.seconds = seconds,
+        Msg::Interval(seconds) => state.interval_seconds = seconds,
         Msg::Zoom(action) => state.zoom.apply(action),
         Msg::Tick => {}
     }
@@ -160,21 +169,9 @@ fn content(state: &State, width: f32) -> Element<'_, Msg> {
         text(status).size(SIZE_CAPTION).color(status_color),
     ]
     .align_y(Alignment::Center);
-    let mut ranges = row![].spacing(3);
-    for (seconds, label) in [(60, "1m"), (300, "5m"), (900, "15m")] {
-        ranges = ranges.push(
-            button(text(label).size(SIZE_SMALL))
-                .padding([4, 0])
-                .width(Length::Fill)
-                .style(if seconds == state.seconds {
-                    button::primary
-                } else {
-                    button::text
-                })
-                .on_press(Msg::Range(seconds)),
-        );
-    }
-    let mut body = column![header, ranges].spacing(10);
+    let intervals = selector(UPDATE_INTERVALS, state.interval_seconds, Msg::Interval);
+    let ranges = selector(HISTORY_RANGES, state.seconds, Msg::Range);
+    let mut body = column![header, intervals, ranges].spacing(10);
     if let Some(error) = &state.error {
         body = body.push(text(error).size(SIZE_SMALL).color(palette.danger));
     }
@@ -183,16 +180,19 @@ fn content(state: &State, width: f32) -> Element<'_, Msg> {
     }
     body = body
         .push(row![
-            text(format!("−{}m", state.seconds / 60))
+            text(format!("−{}", duration_label(state.seconds)))
                 .size(SIZE_CAPTION)
                 .color(muted),
             Space::new().width(Length::Fill),
             text("now").size(SIZE_CAPTION).color(muted),
         ])
         .push(
-            text("1s samples · Ctrl +/− zoom\nCtrl 0 reset")
-                .size(SIZE_CAPTION)
-                .color(muted),
+            text(format!(
+                "{} samples · Ctrl +/− zoom\nCtrl 0 reset",
+                duration_label(state.interval_seconds)
+            ))
+            .size(SIZE_CAPTION)
+            .color(muted),
         );
     // Reserve a slim scrollbar gutter instead of painting over the latest
     // values. Horizontal scrolling is only needed at extreme keyboard zoom.
@@ -224,6 +224,39 @@ fn content(state: &State, width: f32) -> Element<'_, Msg> {
     .width(Length::Fill)
     .height(Length::Fill)
     .into()
+}
+
+fn selector(
+    options: &'static [(u64, &'static str)],
+    selected: u64,
+    on_select: fn(u64) -> Msg,
+) -> Element<'static, Msg> {
+    options
+        .iter()
+        .fold(row![].spacing(3), |row, &(seconds, label)| {
+            row.push(
+                button(text(label).size(SIZE_SMALL))
+                    .padding([4, 0])
+                    .width(Length::Fill)
+                    .style(if seconds == selected {
+                        button::primary
+                    } else {
+                        button::text
+                    })
+                    .on_press(on_select(seconds)),
+            )
+        })
+        .into()
+}
+
+fn duration_label(seconds: u64) -> String {
+    if seconds >= 3600 {
+        format!("{}h", seconds / 3600)
+    } else if seconds >= 60 {
+        format!("{}m", seconds / 60)
+    } else {
+        format!("{seconds}s")
+    }
 }
 
 fn metric_card(state: &State, metric: Metric, compact: bool) -> Element<'_, Msg> {
@@ -327,9 +360,29 @@ mod tests {
     fn range_change_preserves_collected_history() {
         let theme = Arc::new(include_str!("../theme.toml").parse().unwrap());
         let (mut state, _) = boot(theme);
-        state.history.push(Sampler::new().sample());
+        state
+            .history
+            .push(Sampler::new().sample(Duration::from_secs(1)));
         let _ = update(&mut state, Msg::Range(300));
         assert_eq!(state.seconds, 300);
         assert_eq!(state.history.0.len(), 1);
+    }
+
+    #[test]
+    fn interval_changes_preserve_history_and_range() {
+        let theme = Arc::new(include_str!("../theme.toml").parse().unwrap());
+        let (mut state, _) = boot(theme);
+        state
+            .history
+            .push(Sampler::new().sample(Duration::from_secs(1)));
+        let _ = update(&mut state, Msg::Range(3600));
+        for &(seconds, label) in UPDATE_INTERVALS {
+            let _ = update(&mut state, Msg::Interval(seconds));
+            assert_eq!(state.interval_seconds, seconds);
+            assert_eq!(duration_label(seconds), label);
+            assert_eq!(state.seconds, 3600);
+            assert_eq!(state.history.0.len(), 1);
+        }
+        assert_eq!(duration_label(state.seconds), "1h");
     }
 }
