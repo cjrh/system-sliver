@@ -6,7 +6,7 @@ A small system monitor for a narrow strip along your screen edge. Built with Rus
 cargo run --release
 ```
 
-The window opens at **220 × 820** logical pixels and resizes down to 120 px wide. Position or tile it with your window manager; it is a normal window, not a reserved desktop panel. Short windows scroll vertically.
+The window opens at **220 × 820** logical pixels and resizes down to 120 px wide. Position or tile it with your window manager; it is a normal window, not a reserved desktop panel. Short windows scroll vertically. The window is borderless: drag the **SLIVER** header to move it, use **×** to close it, and drag the bottom-right **◢** grip to resize. The header stays visible when scrolling.
 
 - **CPU:** overall utilization across all logical CPUs (0–100%).
 - **Memory:** used RAM, percentage and used/total bytes.

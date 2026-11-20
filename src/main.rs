@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chart::{Chart, Metric};
-use iced::widget::{Space, button, canvas, column, container, responsive, row, scrollable, text};
+use iced::widget::{
+    Space, button, canvas, column, container, mouse_area, responsive, row, scrollable, stack, text,
+};
 use iced::{Alignment, Color, Element, Length, Size, Subscription, Task, window};
 use iced_themer::{ThemeConfig, Themed};
 use metrics::{History, Sample, Sampler, bytes, percent};
@@ -35,6 +37,7 @@ fn main() -> iced::Result {
         .window(window::Settings {
             size: Size::new(220.0, 820.0),
             min_size: Some(Size::new(120.0, 280.0)),
+            decorations: false,
             platform_specific: window::settings::PlatformSpecific {
                 application_id: "system-sliver".into(),
                 ..Default::default()
@@ -66,6 +69,9 @@ struct State {
 
 #[derive(Debug, Clone)]
 enum Msg {
+    DragWindow,
+    ResizeWindow,
+    Close,
     Tick,
     Sampled(Result<Sample, String>),
     Range(u64),
@@ -120,6 +126,17 @@ fn subscription(state: &State) -> Subscription<Msg> {
 
 fn update(state: &mut State, message: Msg) -> Task<Msg> {
     match message {
+        Msg::DragWindow => {
+            return window::oldest().then(|id| id.map_or_else(Task::none, window::drag));
+        }
+        Msg::ResizeWindow => {
+            return window::oldest().then(|id| {
+                id.map_or_else(Task::none, |id| {
+                    window::drag_resize(id, window::Direction::SouthEast)
+                })
+            });
+        }
+        Msg::Close => return iced::exit(),
         Msg::Tick if !state.busy => {
             state.busy = true;
             return sample_task(state.sampler.clone(), state.interval_seconds);
@@ -171,15 +188,31 @@ fn content(state: &State, width: f32) -> Element<'_, Msg> {
     } else {
         palette.success
     };
-    let header = row![
-        text("SLIVER").size(SIZE_TITLE),
+    let mut drag_region = row![
+        text(if width < 100.0 { "S" } else { "SLIVER" }).size(SIZE_TITLE),
         Space::new().width(Length::Fill),
-        text(status).size(SIZE_CAPTION).color(status_color),
     ]
+    .width(Length::Fill)
+    .height(22)
+    .align_y(Alignment::Center);
+    if width >= 175.0 {
+        drag_region = drag_region.push(text(status).size(SIZE_CAPTION).color(status_color));
+    }
+    // Keep the close button separate so clicking it never begins a drag.
+    let header = row![
+        mouse_area(drag_region)
+            .on_press(Msg::DragWindow)
+            .interaction(iced::mouse::Interaction::Grab),
+        button(text("×").size(18))
+            .padding([0, 5])
+            .style(button::text)
+            .on_press(Msg::Close),
+    ]
+    .spacing(4)
     .align_y(Alignment::Center);
     let intervals = selector(UPDATE_INTERVALS, state.interval_seconds, Msg::Interval);
     let ranges = selector(HISTORY_RANGES, state.seconds, Msg::Range);
-    let mut body = column![header, intervals, ranges].spacing(10);
+    let mut body = column![intervals, ranges].spacing(10);
     if let Some(error) = &state.error {
         body = body.push(text(error).size(SIZE_SMALL).color(palette.danger));
     }
@@ -222,16 +255,28 @@ fn content(state: &State, width: f32) -> Element<'_, Msg> {
             },
         )
     };
-    container(
-        scrollable(body.width(body_width))
-            .direction(direction)
-            .width(Length::Fill)
-            .height(Length::Fill),
+    let content = container(
+        column![
+            header,
+            scrollable(body.width(body_width))
+                .direction(direction)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        ]
+        .spacing(10),
     )
     .padding(10)
     .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+    .height(Length::Fill);
+    // Native decorations provided the resize border; provide a persistent grip.
+    let grip = container(
+        mouse_area(container(text("◢").size(12).color(muted)).padding(2))
+            .on_press(Msg::ResizeWindow)
+            .interaction(iced::mouse::Interaction::ResizingDiagonallyDown),
+    )
+    .align_right(Length::Fill)
+    .align_bottom(Length::Fill);
+    stack![content, grip].into()
 }
 
 fn selector(
